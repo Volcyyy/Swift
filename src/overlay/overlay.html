@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Overlay</title>
+  <script defer type="module" src="./overlay.ts"></script>
+</head>
+<body>
+  <div id="widget">
+    <svg id="widget-loader" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="40" stroke-width="12" stroke="#fff" stroke-dasharray="62.83 62.83" fill="none" stroke-linecap="round">
+        <animateTransform attributeName="transform" type="rotate" dur="1s" repeatCount="indefinite" values="0 50 50;360 50 50" />
+      </circle>
+    </svg>
+
+    <div id="widget-content" class="hidden">
+      <div id="timer" class="hud-row hidden">
+        <span class="hud-icon">◷</span><span id="time"></span><span id="ms" class="muted"></span>
+      </div>
+      <div id="daily-row" class="hud-row">
+        <span class="destiny-mark">◆</span><span id="daily" class="daily-accent">0</span><span class="label">today</span>
+      </div>
+      <div id="weekly-row" class="hud-row">
+        <span class="destiny-mark weekly-mark">◆</span><span id="weekly" class="weekly-accent">0</span><span class="label">this week</span>
+      </div>
+
+      <div id="spotify" class="spotify hidden">
+        <div class="divider"></div>
+        <div class="spotify-main">
+          <span class="spotify-dot">●</span>
+          <span class="music-note">♫</span>
+          <div class="spotify-copy">
+            <div id="spotify-track" class="track"></div>
+            <div id="spotify-artist" class="artist"></div>
+          </div>
+          <div class="eq"><i></i><i></i><i></i><i></i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="popup-panel"></div>
+</body>
+</html>

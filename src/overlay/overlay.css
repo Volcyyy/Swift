@@ -1,0 +1,51 @@
+#widget {
+  position: absolute;
+  top: var(--overlay-top, 18px);
+  right: var(--overlay-right, 22px);
+  bottom: var(--overlay-bottom, auto);
+  left: var(--overlay-left, auto);
+  padding: 10px 14px;
+  min-width: 260px;
+  pointer-events: none;
+  transform: scale(var(--overlay-scale, 1));
+  transform-origin: var(--overlay-transform-origin, top right);
+  opacity: var(--overlay-opacity, 1);
+}
+.hidden { display: none !important; }
+.section-disabled { display: none !important; }
+#widget-content {
+  color: var(--overlay-text-color, #f5f7fb);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: .2px;
+  text-shadow: 0 2px 4px rgba(0,0,0,.85);
+}
+.hud-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.hud-icon, .destiny-mark { width: 28px; text-align: center; color: var(--overlay-text-color, #dfe5ee); font-size: 25px; }
+.destiny-mark { color: var(--daily-color, #9fc0ff); font-size: 20px; }
+.weekly-mark { color: var(--weekly-color, #a988f2); }
+#time { font-size: 31px; font-weight: 500; letter-spacing: 1px; }
+.muted, .label { color: var(--overlay-text-color, #e0e1e5); }
+.daily-accent { color: var(--daily-color, #a9c6ff); font-size: 26px; }
+.weekly-accent { color: var(--weekly-color, #aa8bf3); font-size: 26px; }
+.label { font-size: 21px; margin-left: 2px; }
+.spotify { margin-top: 8px; }
+.divider { height: 1px; background: rgba(255,255,255,.14); margin: 10px 0 12px 0; }
+.spotify-main { display:flex; align-items:center; gap:10px; min-height:52px; }
+.spotify-dot { color:var(--spotify-accent-color, #1ed760); font-size:28px; line-height:1; }
+.music-note { font-size:24px; color:var(--overlay-text-color, #f5f7fb); }
+.spotify-copy { min-width:0; flex:1; }
+.track { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:20px; color:var(--overlay-text-color, #f5f7fb); }
+.artist { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px; color:#9da3ad; margin-top:1px; }
+.eq { display:flex; align-items:flex-end; gap:3px; height:28px; }
+.eq i { display:block; width:4px; background:var(--spotify-accent-color, #1ed760); animation:eq 900ms ease-in-out infinite alternate; }
+.eq i:nth-child(1){height:8px}.eq i:nth-child(2){height:14px;animation-delay:120ms}.eq i:nth-child(3){height:21px;animation-delay:240ms}.eq i:nth-child(4){height:28px;animation-delay:360ms}
+@keyframes eq { from { transform:scaleY(.45); opacity:.65 } to { transform:scaleY(1); opacity:1 } }

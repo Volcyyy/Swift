@@ -1,0 +1,49 @@
+{
+    "build": {
+        "beforeBuildCommand": "yarn build",
+        "beforeDevCommand": "yarn dev",
+        "devPath": "http://localhost:5173",
+        "distDir": "../dist"
+    },
+    "package": {
+        "productName": "Swift",
+        "version": "../package.json"
+    },
+    "tauri": {
+        "allowlist": {
+            "all": true
+        },
+        "bundle": {
+            "active": true,
+            "category": "Utility",
+            "icon": [
+                "./icons/icon.ico"
+            ],
+            "identifier": "com.volc.swift",
+            "shortDescription": " A minimal timer / tracker for Destiny 2",
+            "targets": [
+                "msi"
+            ],
+            "externalBin": [
+                "binaries/spotify-companion"
+            ],
+            "windows": {
+                "certificateThumbprint": null,
+                "digestAlgorithm": "sha256",
+                "timestampUrl": ""
+            }
+        },
+        "security": {
+            "csp": "default-src 'self' connect-src 'self' http://127.0.0.1:8974; object-src 'none'"
+        },
+        "systemTray": {
+            "iconPath": "./icons/icon.ico"
+        },
+        "updater": {
+            "active": false,
+            "endpoints": [],
+            "dialog": true,
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYyRkNGNDMwMUI0OUFDQ0IKUldUTHJFa2JNUFQ4OG5ib1hPdnNEcDdzbXJhWmRtWVFxenRFU0ZYOTc0V1RXbS9FU0dhWW9HZDMK"
+        }
+    }
+}

@@ -1,0 +1,117 @@
+@font-face {
+    font-family: "Inter Tight";
+    font-style: normal;
+    font-weight: 300;
+    src: url("/Inter_Tight_300.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Inter Tight";
+    font-style: normal;
+    font-weight: 400;
+    src: url("/Inter_Tight_400.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Inter Tight";
+    font-style: normal;
+    font-weight: 500;
+    src: url("/Inter_Tight_500.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Inter Tight";
+    font-style: normal;
+    font-weight: 600;
+    src: url("/Inter_Tight_600.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Inter Tight";
+    font-style: normal;
+    font-weight: 700;
+    src: url("/Inter_Tight_700.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+    --primary-highlight: #74259c;
+    --secondary-highlight: #592bb5;
+
+    --primary-highlight-light: #912fc2;
+    --secondary-highlight-light: #6c35db;
+
+    --primary-highlight-lighter: #ab4bdb;
+    --secondary-highlight-lighter: #8953f5;
+
+    --app-gradient-1: #12171c;
+    --app-gradient-2: #180f1c;
+
+    --primary-background: var(--app-gradient-1);
+    --secondary-background: var(--app-gradient-2);
+
+    --error: #b53e3e;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    background: none;
+    outline: none;
+    border: none;
+    overflow: hidden;
+    font-family: "Inter Tight";
+    text-decoration: none;
+}
+
+html,
+body {
+    width: 100vw;
+    height: 100vh;
+}
+
+h1 {
+    font-weight: 600;
+}
+
+a {
+    color: var(--primary-highlight-lighter);
+    transition: color 0.1s;
+}
+
+a:hover {
+    color: var(--secondary-highlight-lighter);
+}
+
+::selection {
+    background: var(--primary-highlight);
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+button {
+    cursor: pointer;
+}
+
+button:disabled {
+    cursor: not-allowed;
+}

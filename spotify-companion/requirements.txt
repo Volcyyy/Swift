@@ -1,0 +1,2 @@
+spotipy>=2.25.0,<3
+pyinstaller>=6,<7
