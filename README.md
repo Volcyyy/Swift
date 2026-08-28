@@ -41,7 +41,9 @@ Developed by Volc <3
 
 ## Installation
 
-Release in
+Lastest release in https://github.com/Volcyyy/Swift/releases
+
+Read the README file it explains everything!
 
 If you have any problems with installing or using swift, contact vvolc on discord
 
