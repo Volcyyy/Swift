@@ -3,9 +3,15 @@
 
 Swift is a rebuild of the Destiny 2 timer/tracker written in Rust and Svelte that displays stats about your current activity and clear history.
 
-Swift v1.4.1
+Swift v1.4.2
 
 A customizable Destiny 2 activity timer and tracker for Windows.
+
+What's new in v1.4.2:
+
+- When an activity ends the timer now holds your time on screen instead of
+  disappearing mid-count, and settles on the exact duration Bungie reports for
+  the run — the same number the post game report shows.
 
 What's new in v1.4.1:
 
