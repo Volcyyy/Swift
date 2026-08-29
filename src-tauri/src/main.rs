@@ -5,6 +5,8 @@
 
 use std::{collections::HashMap, io};
 
+use anyhow::Context;
+
 use api::{
     responses::{ActivityInfo, BungieProfile, ProfileInfo},
     Api, Source,
@@ -20,7 +22,7 @@ use pollers::{
     playerdata::{PlayerDataPoller, PlayerDataStatus},
 };
 use tauri::{
-    api::process::{Command, CommandEvent},
+    api::process::{Command, CommandChild, CommandEvent},
     async_runtime::{self, JoinHandle},
     AppHandle, CustomMenuItem, Manager, RunEvent, State, SystemTray, SystemTrayEvent,
     SystemTrayMenu, SystemTrayMenuItem, WindowBuilder, WindowUrl,
@@ -42,6 +44,12 @@ struct PlayerDataPollerContainer(Mutex<PlayerDataPoller>);
 
 #[derive(Default)]
 struct OverlayPollerHandle(Mutex<Option<JoinHandle<()>>>);
+
+// The Spotify companion is a separate process. Nothing reaps it when the app
+// goes away, so without holding on to it here every run leaks one, and the
+// strays keep the sidecar binary locked against the next rebuild.
+#[derive(Default)]
+struct SpotifyChild(Mutex<Option<CommandChild>>);
 
 // https://github.com/tauri-apps/wry/issues/583
 #[tauri::command]
@@ -295,13 +303,20 @@ async fn pipe_loop(handle: AppHandle, mut pipe_server: NamedPipeServer) -> io::R
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Creating the pipe fails when another instance already holds it, in which
+    // case connecting as a client is how we hand the activation over and exit.
     let pipe_server = match ServerOptions::new()
         .first_pipe_instance(true)
         .create(NAMED_PIPE)
     {
         Ok(s) => s,
-        Err(_) => {
-            ClientOptions::new().open(NAMED_PIPE)?;
+        Err(create_err) => {
+            ClientOptions::new().open(NAMED_PIPE).with_context(|| {
+                format!(
+ "Could not create the named pipe {NAMED_PIPE} ({create_err}), and could not reach an existing instance through it either. If no other copy of {APP_NAME} is running, this is unexpected."
+                )
+            })?;
+
             return Ok(());
         }
     };
@@ -309,10 +324,13 @@ async fn main() -> anyhow::Result<()> {
     tauri::async_runtime::set(tokio::runtime::Handle::current());
 
     tauri::Builder::new()
-        .manage(ConfigContainer(Mutex::new(ConfigManager::load()?)))
+        .manage(ConfigContainer(Mutex::new(
+            ConfigManager::load().context("Failed to load config; see above for the path")?,
+        )))
         .manage(Api::default())
         .manage(PlayerDataPollerContainer::default())
         .manage(OverlayPollerHandle::default())
+        .manage(SpotifyChild::default())
         .system_tray(
             SystemTray::new().with_menu(
                 SystemTrayMenu::new()
@@ -380,10 +398,11 @@ async fn main() -> anyhow::Result<()> {
 
                                 match command.spawn() {
                                     Ok((mut rx, child)) => {
-                                        // Keep the sidecar child handle alive for as long as
-                                        // the companion is running, and drain Tauri's event
-                                        // receiver so its process pipes do not get abandoned.
-                                        let _spotify_child = child;
+                                        // Held in app state so it can be killed on exit, and
+                                        // so Tauri's event receiver below keeps being drained
+                                        // rather than having its process pipes abandoned.
+                                        *spotify_handle.state::<SpotifyChild>().0.lock().await =
+                                            Some(child);
 
                                         while let Some(event) = rx.recv().await {
                                             match event {
@@ -449,10 +468,21 @@ async fn main() -> anyhow::Result<()> {
 
             Ok(())
         })
-        .build(tauri::generate_context!())?
-        .run(|_, event| match event {
+        .build(tauri::generate_context!())
+        .context("Failed to build the Tauri app")?
+        .run(|handle, event| match event {
             RunEvent::ExitRequested { api, .. } => {
                 api.prevent_exit();
+            }
+            RunEvent::Exit => {
+                // Closing windows does not exit (see above), so this only runs
+                // on a real quit from the tray -- the one chance to take the
+                // companion process down with us.
+                if let Ok(mut lock) = handle.state::<SpotifyChild>().0.try_lock() {
+                    if let Some(child) = lock.take() {
+                        let _ = child.kill();
+                    }
+                }
             }
             _ => (),
         });

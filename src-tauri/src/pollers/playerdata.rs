@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Result};
 use chrono::{DateTime, Datelike, Utc};
@@ -7,16 +7,23 @@ use tauri::{
     async_runtime::{self, JoinHandle},
     AppHandle, Manager,
 };
-use tokio::sync::Mutex;
+use tokio::{
+    sync::{mpsc, Mutex},
+    time::MissedTickBehavior,
+};
 
 use crate::{
     api::{
-        requests::BungieResponseError,
+        requests::{clock_offset_millis, BungieResponseError},
         responses::{ActivityInfo, CompletedActivity, LatestCharacterActivity, ProfileInfo},
         Api, ApiError, Source,
     },
     config::profiles::Profile,
-    consts::{DUNGEON_ACTIVITY_MODE, RAID_ACTIVITY_MODE, STRIKE_ACTIVITY_MODE, LOSTSECTOR_ACTIVITY_MODE},
+    consts::{
+        ACTIVITY_HISTORY_NUDGE_DELAY, ACTIVITY_HISTORY_POLL_INTERVAL,
+        CURRENT_ACTIVITY_POLL_INTERVAL, DUNGEON_ACTIVITY_MODE, LOSTSECTOR_ACTIVITY_MODE,
+        POLL_ERROR_TOLERANCE, PROFILE_INFO_RETRY_DELAY, RAID_ACTIVITY_MODE, STRIKE_ACTIVITY_MODE,
+    },
     ConfigContainer,
 };
 
@@ -33,6 +40,9 @@ pub struct PlayerData {
 pub struct PlayerDataStatus {
     last_update: Option<PlayerData>,
     error: Option<String>,
+    /// Milliseconds to add to the local clock to line it up with the Bungie
+    /// clock that `start_date` is measured against.
+    clock_offset_millis: i64,
 }
 
 #[derive(Serialize, Clone)]
@@ -81,18 +91,30 @@ impl PlayerDataPoller {
                 }
             };
 
-            let profile_info = {
-                let api = app_handle.state::<Api>();
-                let mut lock = api.profile_info_source.lock().await;
+            // Retried rather than given up on. Nothing can poll until this
+            // succeeds, so bailing out would leave the app dead for the whole
+            // session over one timeout -- and this is the request most likely
+            // to catch a blip, being the first one after launch. A genuinely
+            // bad key just keeps failing, and keeps the error on screen.
+            let profile_info = loop {
+                let result = {
+                    let api = app_handle.state::<Api>();
+                    let mut lock = api.profile_info_source.lock().await;
 
-                match lock.get(&profile).await {
-                    Ok(p) => p,
+                    lock.get(&profile).await
+                };
+
+                match result {
+                    Ok(p) => break p,
                     Err(e) => {
-                        let mut lock = playerdata_clone.lock().await;
-                        lock.error = Some(format!("Failed to get profile info: {e}"));
+                        {
+                            let mut lock = playerdata_clone.lock().await;
+                            lock.error = Some(format!("Failed to get profile info: {e}"));
 
-                        send_data_update(&app_handle, lock.clone());
-                        return;
+                            send_data_update(&app_handle, lock.clone());
+                        }
+
+                        tokio::time::sleep(PROFILE_INFO_RETRY_DELAY).await;
                     }
                 }
             };
@@ -104,81 +126,207 @@ impl PlayerDataPoller {
             };
             let mut activity_history = Vec::new();
 
-            let res = match update_current(&app_handle, &mut current_activity, &profile).await {
-                Ok(_) => update_history(&app_handle, &mut activity_history, &profile).await,
-                Err(e) => Err(e),
-            };
+            // Both fetches are allowed to fail here. The loops below retry on
+            // their own, so one timed-out request while starting up must not
+            // strand the app on an error screen for the rest of the session.
+            let current_res = update_current(&app_handle, &mut current_activity, &profile).await;
+            let history_res = update_history(&app_handle, &mut activity_history, &profile).await;
 
             {
                 let mut lock = playerdata_clone.lock().await;
-                match res {
-                    Ok(_) => {
-                        let playerdata = PlayerData {
-                            current_activity: current_activity,
-                            activity_history,
-                            profile_info,
-                        };
 
-                        lock.last_update = Some(playerdata);
-                        send_data_update(&app_handle, lock.clone());
-                    }
-                    Err(e) => {
-                        lock.error = Some(e.to_string());
-                        send_data_update(&app_handle, lock.clone());
-                        return;
-                    }
-                }
-            }
+                // Seeded unconditionally: the poll loops read the current
+                // activity back out of here, so it has to exist before they run.
+                lock.last_update = Some(PlayerData {
+                    current_activity,
+                    activity_history,
+                    profile_info,
+                });
 
-            let mut count = 0;
+                // Only a failed current-activity fetch is worth showing. The
+                // history just backs the clear counts, and the history loop
+                // fills those in within its first tick.
+                lock.error = current_res.err().map(|e| e.to_string());
 
-            loop {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-
-                let mut last_update = playerdata_clone.lock().await.last_update.clone().unwrap();
-
-                let res = if count < 5 {
-                    update_current(&app_handle, &mut last_update.current_activity, &profile).await
-                } else {
-                    count = 0;
-                    update_history(&app_handle, &mut last_update.activity_history, &profile).await
-                };
-
-                // The boolean return value of update_* functions represents whether or not
-                // the last_update should be resent to the overlay / details
-
-                match res {
-                    Ok(true) => {
-                        let mut lock = playerdata_clone.lock().await;
-                        lock.error = None;
-                        lock.last_update = Some(last_update);
-
-                        send_data_update(&app_handle, lock.clone())
-                    }
-                    Err(e) => {
-                        let mut lock = playerdata_clone.lock().await;
-                        lock.error = Some(e.to_string());
-
-                        send_data_update(&app_handle, lock.clone())
-                    }
-                    _ => (),
+                if let Err(e) = history_res {
+                    eprintln!("Initial activity history fetch failed, retrying shortly: {e}");
                 }
 
-                count += 1;
+                send_data_update(&app_handle, lock.clone());
             }
+
+            // The two polls run as separate loops so that fetching the activity
+            // history -- which walks every character and every page back to
+            // weekly reset -- can never delay noticing that an activity has
+            // started or ended. Joining them here keeps a single abortable
+            // handle: cancelling it cancels both.
+            let (nudge_tx, nudge_rx) = mpsc::channel(1);
+
+            tokio::join!(
+                poll_current(&app_handle, &profile, &playerdata_clone, nudge_tx),
+                poll_history(&app_handle, &profile, &playerdata_clone, nudge_rx),
+            );
         }));
     }
 
     // For overlay / detail window to get initial data instead of waiting for poll
     pub fn get_data(&mut self) -> Option<PlayerDataStatus> {
         return match &self.current_playerdata.try_lock() {
-            Ok(p) => Some((*p).clone()), // If playerdata doesn't exist, meaning poller isn't initialized
+            Ok(p) => {
+                let mut data = (*p).clone(); // If playerdata doesn't exist, meaning poller isn't initialized
+                data.clock_offset_millis = clock_offset_millis();
+                Some(data)
+            }
             Err(_) => None, // If lock currently in use, meaning stat update is in progress
         };
     }
 }
 
-fn send_data_update(handle: &AppHandle, data: PlayerDataStatus) {
+// Polls the current activity, which is what decides when the timer appears,
+// what it counts from, and when it goes away.
+async fn poll_current(
+    handle: &AppHandle,
+    profile: &Profile,
+    playerdata: &Arc<Mutex<PlayerDataStatus>>,
+    nudge_history: mpsc::Sender<()>,
+) {
+    let mut ticker = tokio::time::interval(CURRENT_ACTIVITY_POLL_INTERVAL);
+
+    // Keep a steady cadence rather than sleeping a fixed amount *after* each
+    // request finishes, which used to add the request latency to every gap.
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    ticker.tick().await; // Resolves immediately; the initial fetch already ran.
+
+    let mut consecutive_errors = 0;
+
+    loop {
+        ticker.tick().await;
+
+        let mut current = match playerdata.lock().await.last_update.as_ref() {
+            Some(u) => u.current_activity.clone(),
+            None => continue,
+        };
+
+        match update_current(handle, &mut current, profile).await {
+            Ok(changed) => {
+                consecutive_errors = 0;
+
+                if changed {
+                    // No activity info means the activity just ended, which is
+                    // exactly when a new history entry is about to show up.
+                    let ended = current.activity_info.is_none();
+
+                    {
+                        let mut lock = playerdata.lock().await;
+                        lock.error = None;
+
+                        if let Some(u) = lock.last_update.as_mut() {
+                            u.current_activity = current;
+                        }
+
+                        send_data_update(handle, lock.clone());
+                    }
+
+                    if ended {
+                        let _ = nudge_history.try_send(());
+                    }
+                } else {
+                    clear_error(handle, playerdata).await;
+                }
+            }
+            Err(e) => {
+                consecutive_errors += 1;
+
+                if consecutive_errors >= POLL_ERROR_TOLERANCE {
+                    report_error(handle, playerdata, e.to_string()).await;
+                }
+            }
+        }
+    }
+}
+
+// Polls the completed activity history, which feeds the clear counts and the
+// clear popup. Nothing here is on the timer's critical path.
+async fn poll_history(
+    handle: &AppHandle,
+    profile: &Profile,
+    playerdata: &Arc<Mutex<PlayerDataStatus>>,
+    mut nudge: mpsc::Receiver<()>,
+) {
+    let mut ticker = tokio::time::interval(ACTIVITY_HISTORY_POLL_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    ticker.tick().await; // Resolves immediately; the initial fetch already ran.
+
+    let mut consecutive_errors = 0;
+
+    loop {
+        tokio::select! {
+            _ = ticker.tick() => (),
+            Some(_) = nudge.recv() => {
+                // Bungie needs a moment to publish a just-finished activity, so
+                // give it a beat before asking rather than wasting the request.
+                tokio::time::sleep(ACTIVITY_HISTORY_NUDGE_DELAY).await;
+            }
+        }
+
+        let mut history = match playerdata.lock().await.last_update.as_ref() {
+            Some(u) => u.activity_history.clone(),
+            None => continue,
+        };
+
+        match update_history(handle, &mut history, profile).await {
+            Ok(changed) => {
+                consecutive_errors = 0;
+
+                if changed {
+                    let mut lock = playerdata.lock().await;
+                    lock.error = None;
+
+                    if let Some(u) = lock.last_update.as_mut() {
+                        u.activity_history = history;
+                    }
+
+                    send_data_update(handle, lock.clone());
+                } else {
+                    clear_error(handle, playerdata).await;
+                }
+            }
+            Err(e) => {
+                consecutive_errors += 1;
+
+                if consecutive_errors >= POLL_ERROR_TOLERANCE {
+                    report_error(handle, playerdata, e.to_string()).await;
+                }
+            }
+        }
+    }
+}
+
+async fn clear_error(handle: &AppHandle, playerdata: &Arc<Mutex<PlayerDataStatus>>) {
+    let mut lock = playerdata.lock().await;
+
+    if lock.error.take().is_some() {
+        send_data_update(handle, lock.clone());
+    }
+}
+
+async fn report_error(handle: &AppHandle, playerdata: &Arc<Mutex<PlayerDataStatus>>, error: String) {
+    let mut lock = playerdata.lock().await;
+
+    // Don't re-emit an error that is already on screen.
+    if lock.error.as_deref() == Some(error.as_str()) {
+        return;
+    }
+
+    lock.error = Some(error);
+    send_data_update(handle, lock.clone());
+}
+
+fn send_data_update(handle: &AppHandle, mut data: PlayerDataStatus) {
+    // Stamped at send time so the windows always time against the freshest
+    // estimate of the Bungie clock.
+    data.clock_offset_millis = clock_offset_millis();
+
     if let Some(o) = handle.get_window("overlay") {
         o.emit("playerdata_update", data.clone()).unwrap();
     }
@@ -311,7 +459,13 @@ async fn update_history(
         let mut page = 0;
 
         loop {
-            let history = Api::get_activity_history(profile, character_id, page).await?;
+            // The walk makes one request per page per character, and any single
+            // failure discards every page fetched so far. One retry turns a
+            // transient timeout into a hiccup instead of a lost cycle.
+            let history = match Api::get_activity_history(profile, character_id, page).await {
+                Ok(h) => h,
+                Err(_) => Api::get_activity_history(profile, character_id, page).await?,
+            };
 
             let activities = match history.activities {
                 Some(a) => a,

@@ -9,13 +9,14 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use self::{
-    requests::{make_request, BungieRequest, BungieResponseError},
+    requests::{make_request, make_request_with_timeout, BungieRequest, BungieResponseError},
     responses::{
         ActivityInfo, BungieProfile, CharacterActivityHistory, ProfileCurrentActivities,
         ProfileInfo,
     },
 };
 use crate::config::profiles::Profile;
+use crate::consts::CURRENT_ACTIVITY_REQUEST_TIMEOUT;
 
 pub mod requests;
 pub mod responses;
@@ -85,6 +86,8 @@ impl Source<Profile, ProfileInfo> for ProfileInfoSource {
             membership_type: profile.account_platform,
             membership_id: &profile.account_id,
             component: 100,
+            // Fetched once and cached in-process; stale is fine.
+            cache_bust: false,
         })
         .await
         .map_err(|e| ApiError::ResponseError(e))?;
@@ -141,11 +144,17 @@ impl Api {
     pub async fn get_profile_activities(
         profile: &Profile,
     ) -> Result<ProfileCurrentActivities, ApiError> {
-        let res_val = make_request(BungieRequest::GetProfile {
-            membership_type: profile.account_platform,
-            membership_id: &profile.account_id,
-            component: 204,
-        })
+        // Polled once a second; a slow reply is better abandoned than waited on.
+        let res_val = make_request_with_timeout(
+            BungieRequest::GetProfile {
+                membership_type: profile.account_platform,
+                membership_id: &profile.account_id,
+                component: 204,
+                // The whole point of this poll is freshness.
+                cache_bust: true,
+            },
+            Some(CURRENT_ACTIVITY_REQUEST_TIMEOUT),
+        )
         .await
         .map_err(|e| ApiError::ResponseError(e))?;
 
