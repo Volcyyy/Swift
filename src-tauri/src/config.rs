@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use directories::BaseDirs;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -48,7 +48,9 @@ impl ConfigManager {
 
 trait ConfigFile: Serialize + DeserializeOwned + Default {
     fn load() -> Result<Self> {
-        match read_to_string(Self::get_path()?) {
+        let path = Self::get_path()?;
+
+        match read_to_string(&path) {
             Ok(s) => {
                 let def = serde_json::from_str::<Self>(&s)?;
                 def.write()?;
@@ -60,7 +62,8 @@ trait ConfigFile: Serialize + DeserializeOwned + Default {
                     def.write()?;
                     Ok(def)
                 }
-                _ => Err(e.into()),
+                _ => Err(anyhow::Error::new(e)
+                    .context(format!("Failed to read config file {}", path.display()))),
             },
         }
     }
@@ -70,9 +73,13 @@ trait ConfigFile: Serialize + DeserializeOwned + Default {
         let mut dir = path.clone();
         dir.pop();
 
-        create_dir_all(dir)?;
+        create_dir_all(&dir)
+            .with_context(|| format!("Failed to create config directory {}", dir.display()))?;
 
-        Ok(std::fs::write(path, serde_json::to_string(&self)?)?)
+        std::fs::write(&path, serde_json::to_string(&self)?)
+            .with_context(|| format!("Failed to write config file {}", path.display()))?;
+
+        Ok(())
     }
 
     fn get_path() -> Result<PathBuf> {

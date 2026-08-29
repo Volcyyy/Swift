@@ -52,6 +52,9 @@ export type Preferences = {
 export type PlayerDataStatus = {
     lastUpdate: PlayerData,
     error: string,
+    // Milliseconds to add to the local clock to line it up with the Bungie
+    // clock that currentActivity.startDate is measured against.
+    clockOffsetMillis: number,
 }
 
 export type PlayerData = {

@@ -23,7 +23,9 @@ let lastRaidId: any;
 let doneInitialRefresh = false;
 let shown = false;
 let prefs: Preferences;
-let timerInterval: any;
+let timerTimeout: any;
+let timerRunning = false;
+let clockOffsetMillis = 0;
 let spotifyInterval: any;
 
 async function init() {
@@ -38,14 +40,16 @@ async function init() {
 function createPopup(popup: Popup) { _createPopup(popup, shown); }
 function checkTimerInterval() {
   if (!prefs || !prefs.displayTimer || !shown || !determineActivityType(currentActivity?.activityInfo?.activityModes)) {
-    clearInterval(timerInterval); timerInterval = null; timerElem.classList.add("hidden"); return;
+    stopTimer(); timerElem.classList.add("hidden"); return;
   }
   timerElem.classList.remove("hidden");
-  if (!timerInterval) timerInterval = setInterval(() => requestAnimationFrame(timerTick), 1000 / (prefs.displayMilliseconds ? 30 : 2));
+  if (!timerRunning) { timerRunning = true; timerTick(); }
 }
+function stopTimer() { timerRunning = false; clearTimeout(timerTimeout); timerTimeout = null; }
 function refresh(playerDataStatus: PlayerDataStatus) {
+  clockOffsetMillis = playerDataStatus?.clockOffsetMillis ?? 0;
   const playerData = playerDataStatus?.lastUpdate;
-  if (!playerData) { widgetContentElem.classList.add("hidden"); currentActivity = null as any; doneInitialRefresh = false; return; }
+  if (!playerData) { widgetContentElem.classList.add("hidden"); currentActivity = null as any; doneInitialRefresh = false; stopTimer(); timerElem.classList.add("hidden"); return; }
   loaderElem.classList.add("hidden"); widgetContentElem.classList.remove("hidden");
   currentActivity = playerData.currentActivity; checkTimerInterval();
   dailyElem.innerText = String(countClearsSince(playerData.activityHistory, destinyDailyReset()));
@@ -84,11 +88,20 @@ function applyPreferences(p: Preferences) {
   weeklyElem.classList.toggle("hidden", !p.displayWeeklyClears);
   spotifyElem.classList.toggle("section-disabled", !p.displaySpotify);
   msElem.classList.toggle("hidden", !p.displayMilliseconds);
-  clearInterval(timerInterval); timerInterval = null; checkTimerInterval();
+  stopTimer(); checkTimerInterval();
 }
 function timerTick() {
-  const millis = Number(new Date()) - Number(new Date(currentActivity.startDate));
+  // A queued animation frame can outlive stopTimer(), by which point there may
+  // be no activity left to time.
+  if (!timerRunning) return;
+  const millis = Date.now() + clockOffsetMillis - Number(new Date(currentActivity.startDate));
   timeElem.innerHTML = formatTime(millis); msElem.innerHTML = formatMillis(millis);
+  // Re-arm on the next instant the display actually changes rather than on a
+  // fixed interval, so the seconds digit flips on the second instead of up to
+  // half a tick after it.
+  const step = prefs.displayMilliseconds ? 1000 / 30 : 1000;
+  const delay = step - (((millis % step) + step) % step);
+  timerTimeout = setTimeout(() => requestAnimationFrame(timerTick), delay);
 }
 function startSpotifyPolling() {
   const poll = async () => {

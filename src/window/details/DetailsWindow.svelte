@@ -23,6 +23,7 @@
 
     let playerData: PlayerData;
     let error: string;
+    let clockOffsetMillis = 0;
     $: countedClears = playerData ? countClears(playerData.activityHistory) : 0;
     let showBanner = false;
 
@@ -40,7 +41,8 @@
         }
 
         let millis =
-            Number(new Date()) -
+            Date.now() +
+            clockOffsetMillis -
             Number(new Date(playerData.currentActivity.startDate));
 
         timeText = formatTime(millis);
@@ -62,6 +64,7 @@
     function handleUpdate(status: PlayerDataStatus | null) {
         playerData = status?.lastUpdate;
         error = status?.error;
+        clockOffsetMillis = status?.clockOffsetMillis ?? 0;
 
         let currentActivity = playerData?.currentActivity;
         if (currentActivity?.activityInfo) {

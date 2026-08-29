@@ -1,8 +1,10 @@
 import { ACTIVITY_TYPES } from "./consts";
 import type { CompletedActivity } from "./types";
 
+// Clamped, because clock-offset correction can briefly put the activity start
+// a few milliseconds in the future, which would otherwise render as "0:-1".
 export function formatTime(millis: number): string {
-  let seconds = Math.floor(millis / 1000);
+  let seconds = Math.floor(Math.max(0, millis) / 1000);
   let minutes = Math.floor(seconds / 60);
   seconds -= minutes * 60;
   const hours = Math.floor(minutes / 60);
@@ -10,7 +12,7 @@ export function formatTime(millis: number): string {
   return (hours > 0 ? `${hours}:` : "") + String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
 }
 export function formatMillis(millis: number): string {
-  return ":" + String(millis % 1000).padStart(3, "0").substring(0, 2);
+  return ":" + String(Math.max(0, millis) % 1000).padStart(3, "0").substring(0, 2);
 }
 export function countClears(activityHistory: CompletedActivity[]): number {
   return activityHistory.filter(a => a.completed).length;
