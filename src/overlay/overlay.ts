@@ -28,6 +28,22 @@ let timerRunning = false;
 let clockOffsetMillis = 0;
 let spotifyInterval: any;
 
+// After an activity ends the timer holds its last value instead of vanishing
+// mid-count, then snaps to the duration Bungie reports for the run -- the same
+// number the PGCR and any leaderboard shows. The live timer can only ever
+// overshoot, because nothing knows the run is over until the API says so.
+let frozenMillis: number | null = null;
+let holdTimeout: any;
+// The activity start the running timer is counting from, kept so freezing does
+// not depend on currentActivity, which has already moved on by then.
+let runningStartMillis = 0;
+// Long enough for the history poll, which is nudged as soon as an activity
+// ends, to bring back the finished run. If it never does, the held value goes
+// away on its own rather than sitting there forever.
+const HOLD_AWAITING_API_MS = 20000;
+// How long the confirmed API time stays up once it arrives.
+const HOLD_AFTER_API_MS = 8000;
+
 async function init() {
   appWindow.listen("show", () => { if (!shown) { appWindow.show(); shown = true; checkTimerInterval(); } });
   appWindow.listen("hide", () => { if (shown) { appWindow.hide(); shown = false; checkTimerInterval(); } });
@@ -39,25 +55,63 @@ async function init() {
 }
 function createPopup(popup: Popup) { _createPopup(popup, shown); }
 function checkTimerInterval() {
-  if (!prefs || !prefs.displayTimer || !shown || !determineActivityType(currentActivity?.activityInfo?.activityModes)) {
-    stopTimer(); timerElem.classList.add("hidden"); return;
+  // Switched off or overlay hidden: drop everything, held value included.
+  if (!prefs || !prefs.displayTimer || !shown) { hideTimer(); return; }
+  if (!determineActivityType(currentActivity?.activityInfo?.activityModes)) {
+    // Running until now means the activity just ended: keep the last value on
+    // screen rather than blanking it mid-count.
+    if (timerRunning) { freezeTimer(); return; }
+    if (frozenMillis === null) { stopTimer(); timerElem.classList.add("hidden"); }
+    return;
   }
+  clearHold(); frozenMillis = null;
   timerElem.classList.remove("hidden");
   if (!timerRunning) { timerRunning = true; timerTick(); }
 }
 function stopTimer() { timerRunning = false; clearTimeout(timerTimeout); timerTimeout = null; }
+function clearHold() { clearTimeout(holdTimeout); holdTimeout = null; }
+function hideTimer() { clearHold(); frozenMillis = null; stopTimer(); timerElem.classList.add("hidden"); }
+function renderTimer(millis: number) {
+  timeElem.innerHTML = formatTime(millis); msElem.innerHTML = formatMillis(millis);
+}
+function freezeTimer() {
+  // Against the start it was last counting from, not currentActivity.startDate
+  // -- by the time an activity ends the backend has already moved that on to
+  // whatever came next, usually orbit.
+  frozenMillis = Date.now() + clockOffsetMillis - runningStartMillis;
+  stopTimer();
+  renderTimer(frozenMillis);
+  clearHold();
+  holdTimeout = setTimeout(hideTimer, HOLD_AWAITING_API_MS);
+}
+// Replaces the held value with the run's official duration once it lands in
+// the activity history.
+function showApiTime(durationSeconds: number) {
+  if (frozenMillis === null) return;
+  frozenMillis = durationSeconds * 1000;
+  renderTimer(frozenMillis);
+  clearHold();
+  holdTimeout = setTimeout(hideTimer, HOLD_AFTER_API_MS);
+}
 function refresh(playerDataStatus: PlayerDataStatus) {
   clockOffsetMillis = playerDataStatus?.clockOffsetMillis ?? 0;
   const playerData = playerDataStatus?.lastUpdate;
-  if (!playerData) { widgetContentElem.classList.add("hidden"); currentActivity = null as any; doneInitialRefresh = false; stopTimer(); timerElem.classList.add("hidden"); return; }
+  if (!playerData) { widgetContentElem.classList.add("hidden"); currentActivity = null as any; doneInitialRefresh = false; hideTimer(); return; }
   loaderElem.classList.add("hidden"); widgetContentElem.classList.remove("hidden");
   currentActivity = playerData.currentActivity; checkTimerInterval();
   dailyElem.innerText = String(countClearsSince(playerData.activityHistory, destinyDailyReset()));
   weeklyElem.innerText = String(countClearsSince(playerData.activityHistory, destinyWeeklyReset()));
   const latestRaid = playerData.activityHistory[0];
-  if (doneInitialRefresh && latestRaid?.completed && lastRaidId != latestRaid.instanceId && prefs.displayClearNotifications) {
+  if (doneInitialRefresh && latestRaid && lastRaidId != latestRaid.instanceId) {
     const type = determineActivityType(latestRaid.modes);
-    if (type) createPopup({ title: `${type.charAt(0).toUpperCase()+type.slice(1)} clear result`, subtext: `API Time: <strong>${latestRaid.activityDuration}</strong>` });
+    // Snapped for every finished run, cleared or not, and regardless of the
+    // popup preference. Bungie's activityDurationSeconds is the activity's own
+    // lifetime, which is the number the PGCR and every leaderboard quotes --
+    // on a run left early it runs about 32s past the point you left, because
+    // the instance stays alive that long after. Matching it is the whole point.
+    if (type) showApiTime(latestRaid.activityDurationSeconds);
+    // The popup announces a *clear*, so that one stays gated on completion.
+    if (type && latestRaid.completed && prefs.displayClearNotifications) createPopup({ title: `${type.charAt(0).toUpperCase()+type.slice(1)} clear result`, subtext: `API Time: <strong>${latestRaid.activityDuration}</strong>` });
   }
   lastRaidId = latestRaid?.instanceId;
   doneInitialRefresh = true;
@@ -94,8 +148,9 @@ function timerTick() {
   // A queued animation frame can outlive stopTimer(), by which point there may
   // be no activity left to time.
   if (!timerRunning) return;
-  const millis = Date.now() + clockOffsetMillis - Number(new Date(currentActivity.startDate));
-  timeElem.innerHTML = formatTime(millis); msElem.innerHTML = formatMillis(millis);
+  runningStartMillis = Number(new Date(currentActivity.startDate));
+  const millis = Date.now() + clockOffsetMillis - runningStartMillis;
+  renderTimer(millis);
   // Re-arm on the next instant the display actually changes rather than on a
   // fixed interval, so the seconds digit flips on the second instead of up to
   // half a tick after it.
