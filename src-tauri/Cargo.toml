@@ -1,7 +1,7 @@
 [package]
 name = "swift"
 default-run = "swift"
-version = "1.4.0"
+version = "1.4.1"
 authors = ["Volc"]
 edition = "2021"
 rust-version = "1.57"
