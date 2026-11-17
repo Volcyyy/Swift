@@ -3,7 +3,48 @@
 
 Swift is a rebuild of the Destiny 2 timer/tracker written in Rust and Svelte that displays stats about your current activity and clear history.
 
-Swift v1.4.2
+## Fireteam Tracker — New in v1.4.3
+
+Swift now includes an optional Fireteam Tracker that displays your Destiny 2 raid fireteam directly in the overlay.
+
+### Features
+
+- **Live Fireteam Detection** — Automatically detects your current raid and fireteam members.
+- **Raid-Specific Clears** — View each player's clears for the current raid.
+- **Total Raid Clears** — See each player's overall raid clears.
+- **Destiny 2 Emblems** — Displays compact square emblem icons beside player names.
+- **Player Information** — Shows character classes, Power levels, and fireteam leader.
+- **Automatic Refresh** — Updates fireteam information approximately every 10 seconds, subject to data-source delays.
+- **Optional Raid Timer** — Displays elapsed raid time.
+
+### Customization
+
+Open **Preferences → Fireteam Tracker** to customize the overlay.
+
+You can enable or disable:
+
+- Player emblems
+- Character classes
+- Power levels
+- Raid-specific clears
+- Total raid clears
+- Fireteam leader crown
+- Raid timer
+- Compact or expanded layout
+
+All settings are saved between sessions.
+
+### Data Sources
+
+Swift uses the Bungie API for its original activity tracking and Raid Heatmap for Fireteam Tracker statistics.
+
+Fireteam updates may occasionally be delayed depending on data availability.
+
+### Credits
+
+Developed by **volc**.
+
+Destiny 2 and related assets belong to Bungie. Fireteam statistics are provided by Raid Heatmap.
 
 A customizable Destiny 2 activity timer and tracker for Windows.
 
